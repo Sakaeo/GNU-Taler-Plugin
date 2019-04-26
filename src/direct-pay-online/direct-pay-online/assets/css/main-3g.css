@@ -1,8 +1,0 @@
-#add_payment_method #payment, .woocommerce-checkout #payment{
-    background: none !important;
-    border: 1px solid #ddd;
-    cursor: pointer !important;
-}
-.payment_box.payment_method_woocommerce_3g {
-    display: none !important;
-}
