@@ -7,7 +7,7 @@
  * Plugin URI: https://github.com/Sakaeo/GNU-Taler-Plugin
  *      //Or Wordpress pluin URI
  * Description: This plugin enables the payment via the GNU Taler payment system
- * Version: 1.0.1
+ * Version: 1.0.3
  * Author: Hofmann Dominique & Strübin Jan
  * Author URI: https://i.pinimg.com/originals/75/eb/90/75eb90f3e667aa24a514b801e3b96a54.jpg
  *      //TBD
@@ -41,11 +41,13 @@ if (!defined('ABSPATH')) exit();
 /*
  * This action hook registers our PHP class as a WooCommerce payment gateway
  */
-add_filter( 'woocommerce_payment_gateways', 'gnutaler_add_gateway_class' );
+
 function gnutaler_add_gateway_class( $gateways ) {
-    $gateways[] = 'WC_GNUTaler_Gateway'; // your class name is here
+    $gateways[] = 'WC_GNUTaler_Gateway';
     return $gateways;
 }
+
+add_filter( 'woocommerce_payment_gateways', 'gnutaler_add_gateway_class' );
 
 /*
  * The class itself, please note that it is inside plugins_loaded action hook
@@ -67,7 +69,7 @@ function gnutaler_init_gateway_class() {
         public function __construct() {
             $this->id = 'gnutaler'; // payment gateway plugin ID
             $this->icon = ''; // URL of the icon that will be displayed on checkout page near your gateway name
-            $this->has_fields = false; // in case you need a custom credit card form
+            $this->has_fields = true; // in case you need a custom credit card form
             $this->method_title = 'GNU Taler Gateway';
             $this->method_description = 'This plugin enables the payment via the GNU Taler payment system'; // will be displayed on the options page
 
@@ -141,6 +143,9 @@ function gnutaler_init_gateway_class() {
 
         }
 
+
+        /*
+
         public function validate_fields(){
 
             if( empty( $_POST[ 'billing_first_name' ]) ) {
@@ -151,10 +156,76 @@ function gnutaler_init_gateway_class() {
 
         }
 
+        */
+
+        /*
+         * Here we create the order the backend
+         */
+        function make_order($order_id){
+            $order
+                = array(
+                'amount' =>
+                    array('value' => 0,
+                        'fraction' => 10000000,
+                        'currency' => 'KUDOS'),
+                'summary' =>
+                    "Personal donation to charity program",
+                'order_id' => $order_id,
+                'fulfillment_url' => 'http://gnutaler.hofmd.ch/product/beanie/');
+            return array ('order' => $order);
+        }
         /*
          * We're processing the payments here, everything about it is in Step 5
          */
         public function process_payment( $order_id ) {
+            global $woocommerce;
+
+            // we need it to get any order detailes
+            $order = wc_get_order( $order_id );
+
+            $url = "https://backend.demo.taler.net/order";
+
+            $headers = array(
+                'Authorization' => "ApiKey sandbox",
+                'Content-type' => 'application/json'
+            );
+
+            $json_pls = $this->make_order($order_id);
+
+            $json = "[{order: {amount: KUDOS:10, summary: Donation, fulfillment_url: http://gnutaler.hofmd.ch/product/beanie/}}]";
+            $ORDER="{'order': {'amount': 'KUDOS:10','summary': 'Donation','fulfillment_url': 'http://gnutaler.hofmd.ch/sample-page/'}}";
+
+            $jsonData = array(
+                    'amount' => 'KUDOS:10',
+                    'summary' => 'donation',
+                    'fulfillment_url' => 'http://gnutaler.hofmd.ch/sample-page/');
+            $post_data = json_encode(array('order' => $jsonData));
+
+            $jsonBS = json_encode($json);
+
+
+            $ch = curl_init();
+
+            $headr = array();
+            $headr[] = "Content-length: 0";
+            $headr[] = "Content-type: application/json";
+            $headr[] = "charset=UTF-8";
+            $headr[] = "Authorization: ApiKey sandbox";
+
+            curl_setopt( $ch, CURLOPT_URL, $url );
+            curl_setopt( $ch, CURLOPT_POST, true );
+            curl_setopt( $ch, CURLOPT_HTTPHEADER, $headr);
+            curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt( $ch, CURLOPT_POSTFIELDS, json_encode($ORDER, true));
+            $rest = curl_exec($ch);
+
+            curl_close($ch);
+
+
+            wc_add_notice($ORDER . $rest, "success");
+
+
 
         }
 
