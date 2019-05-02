@@ -34,6 +34,7 @@
 
 
 require_once( ABSPATH . 'wp-admin/includes/plugin.php' );
+require_once( 'Order.php' );
 
 //Exit if accessed directly.
 if (!defined('ABSPATH')) exit();
@@ -159,21 +160,44 @@ function gnutaler_init_gateway_class() {
         */
 
         /*
-         * Here we create the order the backend
+         * Method for calling
          */
-        function make_order($order_id){
-            $order
-                = array(
-                'amount' =>
-                    array('value' => 0,
-                        'fraction' => 10000000,
-                        'currency' => 'KUDOS'),
-                'summary' =>
-                    "Personal donation to charity program",
-                'order_id' => $order_id,
-                'fulfillment_url' => 'http://gnutaler.hofmd.ch/product/beanie/');
-            return array ('order' => $order);
+
+        function callAPI($method, $url, $data){
+            $curl = curl_init();
+
+            switch ($method){
+                case "POST":
+                    curl_setopt($curl, CURLOPT_POST, 1);
+                    if ($data)
+                        curl_setopt($curl, CURLOPT_POSTFIELDS, $data);
+                    break;
+                case "PUT":
+                    curl_setopt($curl, CURLOPT_CUSTOMREQUEST, "PUT");
+                    if ($data)
+                        curl_setopt($curl, CURLOPT_POSTFIELDS, $data);
+                    break;
+                default:
+                    if ($data)
+                        $url = sprintf("%s?%s", $url, http_build_query($data));
+            }
+
+            // OPTIONS:
+            curl_setopt($curl, CURLOPT_URL, $url);
+            curl_setopt($curl, CURLOPT_HTTPHEADER, array(
+                'Authorization: ApiKey sandbox',
+                'Content-Type: application/json',
+            ));
+            curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
+            curl_setopt($curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+
+            // EXECUTE:
+            $result = curl_exec($curl);
+            if(!$result){die("Connection Failure");}
+            curl_close($curl);
+            return $result;
         }
+
         /*
          * We're processing the payments here, everything about it is in Step 5
          */
@@ -185,45 +209,24 @@ function gnutaler_init_gateway_class() {
 
             $url = "https://backend.demo.taler.net/order";
 
-            $headers = array(
-                'Authorization' => "ApiKey sandbox",
-                'Content-type' => 'application/json'
-            );
-
-            $json_pls = $this->make_order($order_id);
-
-            $json = "[{order: {amount: KUDOS:10, summary: Donation, fulfillment_url: http://gnutaler.hofmd.ch/product/beanie/}}]";
-            $ORDER="{'order': {'amount': 'KUDOS:10','summary': 'Donation','fulfillment_url': 'http://gnutaler.hofmd.ch/sample-page/'}}";
-
-            $jsonData = array(
-                    'amount' => 'KUDOS:10',
-                    'summary' => 'donation',
-                    'fulfillment_url' => 'http://gnutaler.hofmd.ch/sample-page/');
-            $post_data = json_encode(array('order' => $jsonData));
-
-            $jsonBS = json_encode($json);
+            $data_array =  array(
+                "order" => array(
+                    "amount" => "KUDOS:10" ,
+                    "summary" => "" ,
+                    "Fullfillment_url" => ""
+                    ),
+                );
 
 
-            $ch = curl_init();
+            $order = new Order("KUDOS:10", "Donation", "http://gnutaler.hofmd.ch/sample-page/");
 
-            $headr = array();
-            $headr[] = "Content-length: 0";
-            $headr[] = "Content-type: application/json";
-            $headr[] = "charset=UTF-8";
-            $headr[] = "Authorization: ApiKey sandbox";
-
-            curl_setopt( $ch, CURLOPT_URL, $url );
-            curl_setopt( $ch, CURLOPT_POST, true );
-            curl_setopt( $ch, CURLOPT_HTTPHEADER, $headr);
-            curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt( $ch, CURLOPT_POSTFIELDS, json_encode($ORDER, true));
-            $rest = curl_exec($ch);
-
-            curl_close($ch);
+            $str = file_get_contents('C:\Users\Administrator\PhpstormProjects\GNU-Taler-Plugin\src\GNU-taler-payment\order.json');
 
 
-            wc_add_notice($ORDER . $rest, "success");
+
+            $data = $this->callAPI('POST', $url, json_encode($data_array));
+
+            wc_add_notice($data, "error");
 
 
 
