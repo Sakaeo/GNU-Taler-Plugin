@@ -34,7 +34,6 @@
 
 
 require_once( ABSPATH . 'wp-admin/includes/plugin.php' );
-require_once( 'Order.php' );
 
 //Exit if accessed directly.
 if (!defined('ABSPATH')) exit();
@@ -144,23 +143,8 @@ function gnutaler_init_gateway_class() {
 
         }
 
-
         /*
-
-        public function validate_fields(){
-
-            if( empty( $_POST[ 'billing_first_name' ]) ) {
-                wc_add_notice(  'First name is required!', 'error' );
-                return false;
-            }
-            return true;
-
-        }
-
-        */
-
-        /*
-         * Method for calling
+         * Method for calling REST-API
          */
 
         function callAPI($method, $url, $data){
@@ -169,13 +153,15 @@ function gnutaler_init_gateway_class() {
             switch ($method){
                 case "POST":
                     curl_setopt($curl, CURLOPT_POST, 1);
-                    if ($data)
+                    if ($data) {
                         curl_setopt($curl, CURLOPT_POSTFIELDS, $data);
+                    }
                     break;
                 case "PUT":
                     curl_setopt($curl, CURLOPT_CUSTOMREQUEST, "PUT");
-                    if ($data)
+                    if ($data) {
                         curl_setopt($curl, CURLOPT_POSTFIELDS, $data);
+                    }
                     break;
                 default:
                     if ($data)
@@ -193,41 +179,53 @@ function gnutaler_init_gateway_class() {
 
             // EXECUTE:
             $result = curl_exec($curl);
-            if(!$result){die("Connection Failure");}
+            $http_message = curl_getinfo($curl);
+            if (curl_error($curl)) {
+                $error_msg = curl_error($curl);
+            }
             curl_close($curl);
+            if (isset($error_msg)) {
+                wc_add_notice("Connection Error: " . $error_msg, "error");
+            }
+            else if ($http_message['http_code'] !== "200"){
+                wc_add_notice("Something went wrong - HTTP Error Code: " . $http_message['http_code'] , "error");
+            }
             return $result;
         }
 
         /*
-         * We're processing the payments here, everything about it is in Step 5
+         * Convert the order to the GNU Taler JSON-format for sending to the backend
+         */
+
+        public function convertToJSON($order_id){
+            $wcorder = wc_get_order( $order_id );
+            $wc_order_total_amount = $wcorder->get_total();
+            $wc_order_curreny = $wcorder->get_currency();
+            return $wc_order_curreny . ":" . $wc_order_total_amount;
+        }
+        /*
+         * We're processing the payments here
          */
         public function process_payment( $order_id ) {
             global $woocommerce;
 
             // we need it to get any order detailes
-            $order = wc_get_order( $order_id );
+            $wcorder = wc_get_order( $order_id );
 
-            $url = "https://backend.demo.taler.net/order";
+            $url = "https://backend.demo.taler.net/order/";
 
+            //HOLY JSON FORMAT!!!!
             $data_array =  array(
                 "order" => array(
-                    "amount" => "KUDOS:10" ,
-                    "summary" => "" ,
+                    "amount" =>  "KUDOS:10",
+                    "summary" => "Something else" ,
                     "Fullfillment_url" => ""
                     ),
                 );
-
-
-            $order = new Order("KUDOS:10", "Donation", "http://gnutaler.hofmd.ch/sample-page/");
-
-            $str = file_get_contents('C:\Users\Administrator\PhpstormProjects\GNU-Taler-Plugin\src\GNU-taler-payment\order.json');
-
-
+            //DO NOT TOUCH
 
             $data = $this->callAPI('POST', $url, json_encode($data_array));
-
-            wc_add_notice($data, "error");
-
+            wc_add_notice($data);
 
 
         }
