@@ -61,6 +61,7 @@ function gnutaler_init_gateway_class() {
         wp_die( "<strong>GNU Taler</strong> requires <strong>WooCommerce</strong> plugin to work normally. Please activate it or install it from <a href=\"http://wordpress.org/plugins/woocommerce/\" target=\"_blank\">here</a>.<br /><br />Back to the WordPress <a href='".get_admin_url(null, 'plugins.php')."'>Plugins page</a>." );
     }
 
+
     class WC_GNUTaler_Gateway extends WC_Payment_Gateway {
 
         /**
@@ -88,9 +89,14 @@ function gnutaler_init_gateway_class() {
             $this->description = $this->get_option( 'description' );
             $this->enabled = $this->get_option( 'enabled' );
             $this->testmode = 'yes' === $this->get_option( 'testmode' );
+            $this->GNU_Taler_Backend_URL = $this->get_option( 'GNU_Taler_Backend_URL' );
 
-            // This action hook saves the settings
-            add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
+            //Verify if the GNU Taler Backend URL in the settings is valid or not
+            $result = $this->verifyBackendURL($this->get_option("GNU_Taler_Backend_URL", 1));
+
+                // This action hook saves the settings
+            add_action('woocommerce_update_options_payment_gateways_' . $this->id, array($this, 'process_admin_options'));
+
 
             // We need custom JavaScript to obtain a token
             add_action( 'wp_enqueue_scripts', array( $this, 'payment_scripts' ) );
@@ -132,6 +138,13 @@ function gnutaler_init_gateway_class() {
                     'default'     => 'yes',
                     'desc_tip'    => true,
                 ),
+
+                'GNU_Taler_Backend_URL' => array(
+                    'title'       => 'GNU Taler Backend URL',
+                    'type'        => 'text',
+                    'description' => 'Set the URL for the GNU Taler Backend.',
+                    'default'     => 'https://backend.demo.taler.net',
+                ),
             );
         }
 
@@ -147,25 +160,33 @@ function gnutaler_init_gateway_class() {
          * Method for calling REST-API
          */
 
-        function callAPI($method, $url, $data){
+        function callAPI($method, $url, $body, $purpose){
+
+            if ($purpose == "create_order"){
+                $url = $url . "/order";
+            }
+            else if ($purpose == "confirm_payment"){
+                $url = $url . "/check-payment?order_id=" . $body;
+            }
             $curl = curl_init();
 
             switch ($method){
                 case "POST":
                     curl_setopt($curl, CURLOPT_POST, 1);
-                    if ($data) {
-                        curl_setopt($curl, CURLOPT_POSTFIELDS, $data);
+                    if ($body) {
+                        curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
                     }
                     break;
                 case "PUT":
                     curl_setopt($curl, CURLOPT_CUSTOMREQUEST, "PUT");
-                    if ($data) {
-                        curl_setopt($curl, CURLOPT_POSTFIELDS, $data);
+                    if ($body) {
+                        curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
                     }
                     break;
-                default:
-                    if ($data)
-                        $url = sprintf("%s?%s", $url, http_build_query($data));
+                case "Simple":
+                    curl_setopt($curl, CURLOPT_VERBOSE, 1);
+                   // curl_setopt($curl, CURLOPT_HEADER, 1);
+                    break;
             }
 
             // OPTIONS:
@@ -179,7 +200,6 @@ function gnutaler_init_gateway_class() {
 
             // EXECUTE:
             $result = curl_exec($curl);
-            $http_message = curl_getinfo($curl);
             if (curl_error($curl)) {
                 $error_msg = curl_error($curl);
             }
@@ -187,10 +207,15 @@ function gnutaler_init_gateway_class() {
             if (isset($error_msg)) {
                 wc_add_notice("Connection Error: " . $error_msg, "error");
             }
-            else if ($http_message['http_code'] !== "200"){
-                wc_add_notice("Something went wrong - HTTP Error Code: " . $http_message['http_code'] , "error");
-            }
             return $result;
+        }
+
+        /*
+         *  Here we verify if the GNU Taler Backend URL, given in the settings, is valid.
+         */
+
+        public function verifyBackendURL($String){
+            return false;
         }
 
         /*
@@ -201,6 +226,7 @@ function gnutaler_init_gateway_class() {
             $wcorder = wc_get_order( $order_id );
             $wc_order_total_amount = $wcorder->get_total();
             $wc_order_curreny = $wcorder->get_currency();
+            $wc_order_products = $wcorder->get_items();
             return $wc_order_curreny . ":" . $wc_order_total_amount;
         }
         /*
@@ -212,23 +238,66 @@ function gnutaler_init_gateway_class() {
             // we need it to get any order detailes
             $wcorder = wc_get_order( $order_id );
 
-            $url = "https://backend.demo.taler.net/order/";
+            // Gets the url of the backend from the WooCommerce Settings
+            $backendURL = $this->get_option("GNU_Taler_Backend_URL", 1);
 
             //HOLY JSON FORMAT!!!!
             $data_array =  array(
                 "order" => array(
                     "amount" =>  "KUDOS:10",
-                    "summary" => "Something else" ,
-                    "Fullfillment_url" => ""
-                    ),
+                    "summary" => "" ,
+                    "fulfillment_url" => "http://gnutaler.hofmd.ch/thank-you-for-your-purchase/",
+                    "products" => array(
+                            array('description' =>
+                            "Donation to charity program",
+                            'quantity' => 1,
+                            'price' =>
+                                '25',
+                            'product_id' => 0,
+                            'delivery_date' =>
+                                "/Date( 12-1-1996 )/",
+                            'delivery_location' =>
+                                'LNAME1'
+                            ),
+                            array('description' =>
+                                "Donation to charity program",
+                                'quantity' => 1,
+                                'price' =>
+                                    '25',
+                                'product_id' => 0,
+                                'delivery_date' =>
+                                    "/Date( 12-1-1996 )/",
+                                'delivery_location' =>
+                                    'LNAME1'
+                            )
+                        )
+                    )
                 );
             //DO NOT TOUCH
 
-            $data = $this->callAPI('POST', $url, json_encode($data_array));
-            wc_add_notice($data);
+            // Send the POST-Request via CURL to the GNU Taler Backend
+            $order_confirmation = $this->callAPI('POST', $backendURL, json_encode($data_array, JSON_UNESCAPED_SLASHES), "create_order");
+            $order_confirmation_id = explode("\"", $order_confirmation)[3];
 
 
+            // Send the final confirmation to execute the payment transaction to the GNU Taler Backend
+            $payment_confirmation = $this->callAPI("Simple", $backendURL, $order_confirmation_id, "confirm_payment");
+            $payment_confirmation_url = explode("\"", $payment_confirmation)[3];
+
+            //wc_add_notice($payment_confirmation_url, "success");
+
+            $wcorder->payment_complete();
+            $woocommerce->cart->empty_cart();
+
+            // Return thankyou redirect
+            return array(
+                'result'    => 'success',
+                'redirect'  => $payment_confirmation_url
+            );
         }
 
+
+
     }
+
 }
