@@ -210,7 +210,7 @@ function gnutaler_init_gateway_class()
                         curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
                     }
                     break;
-                case "Simple":
+                case "GET":
                     curl_setopt($curl, CURLOPT_VERBOSE, 1);
                     // curl_setopt($curl, CURLOPT_HEADER, 1);
                     break;
@@ -227,12 +227,16 @@ function gnutaler_init_gateway_class()
 
             // EXECUTE:
             $result = curl_exec($curl);
+            $http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
             if (curl_error($curl)) {
                 $error_msg = curl_error($curl);
             }
             curl_close($curl);
             if (isset($error_msg)) {
-                wc_add_notice("Connection Error: " . $error_msg, "error");
+                return $error_msg;
+            }
+            if ($http_code != "200"){
+                return $http_code;
             }
             return $result;
         }
@@ -271,13 +275,14 @@ function gnutaler_init_gateway_class()
 
             $order_json = array(
                 "order" => array(
-                    "amount" => $wc_order_curreny . ":" . $wc_order_total_amount,
-                    //"amount" => "KUDOS:0.1",
+                    //"amount" => $wc_order_curreny . ":" . $wc_order_total_amount,
+                    "amount" => "KUDOS:0.1",
                     "summary" => "Order of the following items:",
                     "fulfillment_url" => "http://gnutaler.hofmd.ch",
                     "order_id" => $wc_order_id,
                     //"merchant" => array(),
-                    "products" => $wc_order_products_array
+                    "products" => $wc_order_products_array,
+                    //"products" => $wc_order_products_array
                 )
             );
 
@@ -308,14 +313,16 @@ function gnutaler_init_gateway_class()
 
 
             // Send the final confirmation to execute the payment transaction to the GNU Taler Backend
-            $payment_confirmation = $this->callAPI("Simple", $backendURL, $order_confirmation_id, "confirm_payment");
+            $payment_confirmation = $this->callAPI("GET", $backendURL, $order_confirmation_id, "confirm_payment");
             $payment_confirmation_url = explode("\"", $payment_confirmation)[3];
 
+            //Completes the order
+            $wcorder->payment_complete();
 
-            //$wcorder->payment_complete();
-            //WC()->cart->empty_cart();
+            //Empties the shopping cart
+            WC()->cart->empty_cart();
 
-            //wc_add_notice($order_confirmation, "success");
+            wc_add_notice($order_confirmation_id, "success");
 
 
             return array(
@@ -332,8 +339,9 @@ function gnutaler_init_gateway_class()
             $wcorder = wc_get_order($order_id);
 
             $refund_json = array(
-                "order_id" => $wcorder->get_order_number() . "_" . $wcorder->get_order_key(),
-                "refund" => $amount,
+                "order_id" => $wcorder->get_order_key() . "_" . $wcorder->get_order_number(),
+                //"refund" => $wcorder->get_currency() . ":" . $amount,
+                "refund" => "KUDOS:0.05",
                 "instance" => "default",
                 "reason" => $reason
             );
@@ -344,8 +352,10 @@ function gnutaler_init_gateway_class()
             $wc_order_status = $wcorder->get_status();
 
             if ($wc_order_status == "processing"  || $wc_order_status == "on hold" || $wc_order_status == "completed" || $wc_order_status == "refunded") {
-                //$redirect_confirmation = $this->callAPI("POST", $backendURL, json_encode("", JSON_UNESCAPED_SLASHES), "create_refund");
+                $refund_confirmation = $this->callAPI("POST", $backendURL, json_encode($refund_json, JSON_UNESCAPED_SLASHES), "create_refund");
+                $refund_url = json_decode($refund_confirmation);
                 $wcorder->update_status("refunded");
+                $wcorder->add_order_note("To finish the refund process please confirm the refund via the following url: " . $refund_confirmation);
                 return true;
             }
             else{
